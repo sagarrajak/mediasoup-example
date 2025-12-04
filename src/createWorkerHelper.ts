@@ -2,7 +2,7 @@ import { createWorker } from "mediasoup";
 import os from "os";
 import Config from "./config.js";
 
-const cpus = os.cpus.length; //maxium number of allowed workers
+const cpus = os.cpus().length; //maxium number of allowed workers
 
 export type WorkerType = Awaited<ReturnType<typeof createWorker>>;
 
@@ -13,7 +13,7 @@ const createWorkerHelper = () => {
       logTags: Config.workerSettings.logTags,
     });
     worker.on("died", () => {
-      console.error("worker diet with unknow reason");
+      console.error("worker died with unknown reason");
       process.exit(1);
     });
     return worker;
