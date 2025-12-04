@@ -1,19 +1,25 @@
-import { createWorker } from 'mediasoup';
-import os from 'os';
+import { createWorker } from "mediasoup";
+import os from "os";
+import Config from "./config.js";
 
-const cpus = os.cpus.length; //maxium number of allowed workers
+const cpus = os.cpus().length; //maxium number of allowed workers
 
-type WorkerType = ReturnType<typeof createWorker>;
+export type WorkerType = Awaited<ReturnType<typeof createWorker>>;
 
-const createWorkerHelper =  async () => {
-    const workers: WorkerType[] = []
-    return new Promise((resolve, reject) => {
-        for (let i=0; i<(cpus/2); i++) {
-            let worker =  createWorker()
-            workers.push(worker);
-        }
-        resolve(Promise.all(workers));
+const createWorkerHelper = () => {
+  const workers = Array.from({ length: cpus / 2 }, async () => {
+    let worker = await createWorker({
+      logLevel: Config.workerSettings.logLevel,
+      logTags: Config.workerSettings.logTags,
     });
+    worker.on("died", () => {
+      console.error("worker died with unknown reason");
+      process.exit(1);
+    });
+    return worker;
+  });
+
+  return Promise.all(workers);
 };
 
 export default createWorkerHelper;

@@ -1,9 +1,10 @@
+import express from "express";
 import fs from "fs";
 import https from "https";
-import express from "express";
+import { AppData, Router, Worker } from "mediasoup/types";
 import { Server } from "socket.io";
-import mediasoup from "mediasoup";
-import createWorkerHelper from "./createWorkerHelper";
+import Config from "./config.js";
+import createWorkerHelper from "./createWorkerHelper.js";
 
 const app = express();
 app.use(express.static("public"));
@@ -17,18 +18,89 @@ const httpsServer = https.createServer(options, app);
 
 const io = new Server(httpsServer, {
   cors: {
-    origin: "https://localhost:3030",
+    origin: `https://localhost:${Config.port}`,
     credentials: true,
   },
 });
 
-let workers = null;
+const mediaCodecs = [
+  {
+    kind: "audio",
+    mimeType: "audio/opus",
+    clockRate: 48000,
+    channels: 2,
+  },
+  {
+    kind: "video",
+    mimeType: "video/H264",
+    clockRate: 90000,
+    parameters: {
+      "packetization-mode": 1,
+      "profile-level-id": "42e01f",
+      "level-asymmetry-allowed": 1,
+    },
+  },
+];
+
+
+
+let workers: Worker<AppData>[] | null = null;
+let router: Router<AppData> | undefined = undefined;
+
+
+io.on("connect", (socket) => {
+  console.log("socket just connected");
+    socket.on("getRtpCap", (cb) => {
+      // cb is callack to send data
+      console.log(router)
+      cb(router?.rtpCapabilities);
+    });
+
+   socket.on("create-producer-transport", async (ack) => {
+    // create transportt
+    let transport = await router?.createWebRtcTransport({
+      enableUdp: true,
+      enableTcp: true,
+      preferUdp: true,
+      listenInfos: [
+        {
+          protocol: "udp",
+          ip: "127.0.0.1",
+        },
+        {
+          protocol: "tcp",
+          ip: "127.0.0.1",
+        },
+      ],
+    });
+
+    if (transport == undefined) {
+      ack({});
+      return
+    }
+
+    const config = {
+      id: transport.id,
+      iceParameters: transport.iceParameters,
+      iceCandidate: transport.iceCandidates,
+      dtlcParameter: transport.dtlsParameters
+    };
+    ack(config)
+  });
+
+
+
+});
+
 
 // Make mediusoup configuration ready
 const initMediaSoup = async () => {
   workers = await createWorkerHelper();
+  router = await workers[0]?.createRouter({ mediaCodecs: mediaCodecs as any });
 };
 
-initMediaSoup();
-
-httpsServer.listen(3030);
+initMediaSoup().then(() => {
+  httpsServer.listen(Config.port, () => {
+    console.log("server started...");
+  });
+});
