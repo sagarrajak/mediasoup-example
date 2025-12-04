@@ -11,7 +11,9 @@ const localVideo = document.getElementById("local-video");
 const remoteVideo = document.getElementById("remote-video");
 
 let socket = null,
-  device = null;
+  device = null,
+  localStream = null,
+  producerTransport = null;
 
 // socket is connect
 function addSocketEventListener() {
@@ -46,12 +48,32 @@ async function deviceSetup() {
   const routerRtp = await socket.emitWithAck("getRtpCap");
   console.log("router rtp capability", routerRtp);
   await device.load({ routerRtpCapabilities: routerRtp });
-  console.log(device.loaded)
+  console.log(device.loaded);
+  if (device.loaded) {
+    deviceButton.disabled = true;
+    createProdButton.disabled = false;
+  } else {
+    alert("rtp handshake failed");
+  }
 }
 
-function createProducer() {
+async function createProducer() {
   console.log("createProducer called");
-  // your code here
+  // get live audio and video feed
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: false
+    })
+    localVideo.srcObject = localStream;
+    const data = await socket.emitWithAck("create-producer-transport");
+    // ASK for singnaling part for transport interfomation
+    console.log(data);
+  } catch(err) {
+    console.log("some error");
+    console.log(err)
+  }
+
 }
 
 function publish() {

@@ -50,11 +50,46 @@ let router: Router<AppData> | undefined = undefined;
 
 io.on("connect", (socket) => {
   console.log("socket just connected");
-  socket.on("getRtpCap", (cb) => {
-    // cb is callack to send data
-    console.log(router)
-    cb(router?.rtpCapabilities);
+    socket.on("getRtpCap", (cb) => {
+      // cb is callack to send data
+      console.log(router)
+      cb(router?.rtpCapabilities);
+    });
+
+   socket.on("create-producer-transport", async (ack) => {
+    // create transportt
+    let transport = await router?.createWebRtcTransport({
+      enableUdp: true,
+      enableTcp: true,
+      preferUdp: true,
+      listenInfos: [
+        {
+          protocol: "udp",
+          ip: "127.0.0.1",
+        },
+        {
+          protocol: "tcp",
+          ip: "127.0.0.1",
+        },
+      ],
+    });
+
+    if (transport == undefined) {
+      ack({});
+      return
+    }
+
+    const config = {
+      id: transport.id,
+      iceParameters: transport.iceParameters,
+      iceCandidate: transport.iceCandidates,
+      dtlcParameter: transport.dtlsParameters
+    };
+    ack(config)
   });
+
+
+
 });
 
 
