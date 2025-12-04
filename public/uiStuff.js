@@ -10,7 +10,9 @@ const disconnectButton = document.getElementById("disconnect");
 const localVideo = document.getElementById("local-video");
 const remoteVideo = document.getElementById("remote-video");
 
-let socket = null, device = null;
+let socket = null,
+  device = null;
+
 // socket is connect
 function addSocketEventListener() {
   if (!socket) {
@@ -20,12 +22,11 @@ function addSocketEventListener() {
   socket.on("connect", () => {
     console.log("connected to the socket");
     // not we can moved to next step
-    connectButton.innerHTML = "connected"
-    connectButton.disabled = false
-    
-    // enabled the device button 
+    connectButton.innerHTML = "connected";
+    connectButton.disabled = false;
+
+    // enabled the device button
     deviceButton.disabled = false;
-    device = new mediasoupClient.Device({ handlerName: "Chrome67" });
   });
 }
 
@@ -38,16 +39,19 @@ function initConnect() {
   addSocketEventListener();
 }
 
-function deviceSetup() {
+async function deviceSetup() {
   console.log("deviceSetup called");
   // your code here
-  
+  device = new mediasoupClient.Device();
+  const routerRtp = await socket.emitWithAck("getRtpCap");
+  console.log("router rtp capability", routerRtp);
+  await device.load({ routerRtpCapabilities: routerRtp });
+  console.log(device.loaded)
 }
 
 function createProducer() {
   console.log("createProducer called");
   // your code here
-
 }
 
 function publish() {

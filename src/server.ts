@@ -23,10 +23,6 @@ const io = new Server(httpsServer, {
   },
 });
 
-let workers: Worker<AppData>[] | null = null;
-let router: Router<AppData> | undefined =  undefined;
-
-
 const mediaCodecs = [
   {
     kind: "audio",
@@ -46,12 +42,30 @@ const mediaCodecs = [
   },
 ];
 
+
+
+let workers: Worker<AppData>[] | null = null;
+let router: Router<AppData> | undefined = undefined;
+
+
+io.on("connect", (socket) => {
+  console.log("socket just connected");
+  socket.on("getRtpCap", (cb) => {
+    // cb is callack to send data
+    console.log(router)
+    cb(router?.rtpCapabilities);
+  });
+});
+
+
 // Make mediusoup configuration ready
 const initMediaSoup = async () => {
   workers = await createWorkerHelper();
   router = await workers[0]?.createRouter({ mediaCodecs: mediaCodecs as any });
 };
 
-initMediaSoup();
-
-httpsServer.listen(Config.port);
+initMediaSoup().then(() => {
+  httpsServer.listen(Config.port, () => {
+    console.log("server started...");
+  });
+});
