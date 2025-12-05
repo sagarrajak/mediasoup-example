@@ -49,16 +49,20 @@ let router: Router<AppData> | undefined = undefined;
 
 
 io.on("connect", (socket) => {
+   let transport: any = null,
+   producer: any = null;
+
   console.log("socket just connected");
-    socket.on("getRtpCap", (cb) => {
+  
+  socket.on("getRtpCap", (cb) => {
       // cb is callack to send data
       console.log(router)
       cb(router?.rtpCapabilities);
-    });
+  });
 
    socket.on("create-producer-transport", async (ack) => {
     // create transportt
-    let transport = await router?.createWebRtcTransport({
+    transport = await router?.createWebRtcTransport({
       enableUdp: true,
       enableTcp: true,
       preferUdp: true,
@@ -88,7 +92,36 @@ io.on("connect", (socket) => {
     ack(config)
   });
 
+  socket.on("connect-transport-event",async (dltsParameter, ack) => {
+    console.log("conection transport event")
+    console.log(dltsParameter);
+    console.log("get the dtls info from client and finish the transport");
+    try {
+      console.log(JSON.parse(JSON.stringify(dltsParameter.dtlsParameters)))
+      await transport?.connect({dtlsParameters: dltsParameter.dtlsParameters})
+      ack("success");
+    } catch(err) {
+      ack("error");
+      console.log(err);
+    }
+  });
 
+
+  socket.on("producer-event", async (payload, ack) => {
+    const { kind, rtpParameters, transportId } = payload;
+    console.log("got producer event", payload);
+    try {
+      producer = await  transport?.produce({
+        kind,
+        rtpParameters,
+      });
+      console.log(producer);
+      ack({ id: producer.id, type: "success" });
+    } catch (err) {
+      ack({ type: "error" });
+      console.error(err);
+    }
+  });
 
 });
 

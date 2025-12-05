@@ -13,7 +13,8 @@ const remoteVideo = document.getElementById("remote-video");
 let socket = null,
   device = null,
   localStream = null,
-  producerTransport = null;
+  producerTransport = null,
+  producer = null;
 
 // socket is connect
 function addSocketEventListener() {
@@ -62,23 +63,86 @@ async function createProducer() {
   // get live audio and video feed
   try {
     localStream = await navigator.mediaDevices.getUserMedia({
-        video: true,
-        audio: false
-    })
+      video: true,
+      audio: true,
+    });
     localVideo.srcObject = localStream;
     const data = await socket.emitWithAck("create-producer-transport");
     // ASK for singnaling part for transport interfomation
     console.log(data);
-  } catch(err) {
+    if (!data || Object.keys(data).length <= 0) {
+      console.log(data);
+      console.log("server tranport failed");
+      return;
+    }
+
+    const transport = device.createSendTransport({
+      id: data.id,
+      iceParameters: data.iceParameters,
+      iceCandidates: data.iceCandidate,
+      dtlsParameters: data.dtlcParameter,
+    });
+    producerTransport = transport;
+  } catch (err) {
     console.log("some error");
-    console.log(err)
+    console.log(err);
   }
 
+  producerTransport.on(
+    "connect",
+    async ({ dtlsParameters }, callback, errback) => {
+      // connect come with dtls paramer , we need to send this to backend
+        const resposne = await socket.emitWithAck("connect-transport-event", {
+          dtlsParameters
+        });
+        //calling callback simply lets the app know that the server successd in connecting 
+        //so trigger the producer event
+        console.log(resposne)
+        if (resposne === 'success') {
+          callback();
+        } else {
+           //calling callback simply lets the app know that the server successd in connecting 
+          //so trigger the producer event
+          errback();
+        }
+    }
+  );
+
+  producerTransport.on("produce", async (parameters, callback, errback) => {
+    try {
+      const { id, type } = await socket.emitWithAck("producer-event", {
+        kind: parameters.kind,
+        rtpParameters: parameters.rtpParameters,
+        transportId: producerTransport.id, // Optional, but good practice
+      });
+
+      console.log("client producer id", id);
+      if (type === "success") {
+        // The callback must be called with the server-side Producer ID
+        callback({ id });
+        publishButton.disabled = true
+        createConsButton.disabled = false
+      }
+    } catch (error) {
+      console.error("Error during 'produce' signaling:", error);
+      errback();
+    }
+  });
+  createProdButton.disabled = true;
+  publishButton.disabled = false;
 }
 
-function publish() {
+async function publish() {
   console.log("publish called");
-  // your code here
+  const track = localStream.getTracks()[0];
+  console.log(track);
+  try {
+    const producer = await producerTransport.produce({
+      track
+    });
+  } catch (err) {
+    console.error(err);
+  }
 }
 
 function createConsume() {
