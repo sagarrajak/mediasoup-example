@@ -1,10 +1,11 @@
 import express from "express";
 import fs from "fs";
 import https from "https";
-import { AppData, Router, Worker } from "mediasoup/types";
+import { AppData, Consumer, Router, Worker } from "mediasoup/types";
 import { Server } from "socket.io";
 import Config from "./config.js";
 import createWorkerHelper from "./createWorkerHelper.js";
+import { createWebrtcTransport } from "./createTransport.js";
 
 const app = express();
 app.use(express.static("public"));
@@ -32,99 +33,144 @@ const mediaCodecs = [
   },
   {
     kind: "video",
-    mimeType: "video/H264",
+    mimeType: "video/VP8", // <--- ADD THIS SAFEST CODEC
     clockRate: 90000,
-    parameters: {
-      "packetization-mode": 1,
-      "profile-level-id": "42e01f",
-      "level-asymmetry-allowed": 1,
-    },
-  },
+  }
 ];
 
+type TransportTypeWithUndifined = Awaited<ReturnType<typeof createWebrtcTransport>>
+type TransportType = Exclude<TransportTypeWithUndifined, undefined>;
 
 
 let workers: Worker<AppData>[] | null = null;
 let router: Router<AppData> | undefined = undefined;
 
-
 io.on("connect", (socket) => {
-   let transport: any = null,
-   producer: any = null;
+  let clientProducerTransport: any = null,
+    clientProducer: any = null,
+    clientConsumerTransport: TransportTypeWithUndifined = undefined,
+    clientConsumer: Consumer<AppData> | undefined = undefined;
+
 
   console.log("socket just connected");
-  
+
   socket.on("getRtpCap", (cb) => {
-      // cb is callack to send data
-      console.log(router)
-      cb(router?.rtpCapabilities);
+    // cb is callack to send data
+    console.log(router);
+    cb(router?.rtpCapabilities);
   });
 
-   socket.on("create-producer-transport", async (ack) => {
+  socket.on("create-producer-transport", async (ack) => {
     // create transportt
-    transport = await router?.createWebRtcTransport({
-      enableUdp: true,
-      enableTcp: true,
-      preferUdp: true,
-      listenInfos: [
-        {
-          protocol: "udp",
-          ip: "127.0.0.1",
-        },
-        {
-          protocol: "tcp",
-          ip: "127.0.0.1",
-        },
-      ],
-    });
-
-    if (transport == undefined) {
+    clientProducerTransport = await createWebrtcTransport(router);
+    if (clientProducerTransport == undefined) {
       ack({});
-      return
+      return;
     }
-
     const config = {
-      id: transport.id,
-      iceParameters: transport.iceParameters,
-      iceCandidate: transport.iceCandidates,
-      dtlcParameter: transport.dtlsParameters
+      id: clientProducerTransport.id,
+      iceParameters: clientProducerTransport.iceParameters,
+      iceCandidate: clientProducerTransport.iceCandidates,
+      dtlcParameter: clientProducerTransport.dtlsParameters,
     };
-    ack(config)
+    ack(config);
   });
 
-  socket.on("connect-transport-event",async (dltsParameter, ack) => {
-    console.log("conection transport event")
+   socket.on("create-consumer-transport", async (ack) => {
+     // create transportt
+     clientConsumerTransport = await createWebrtcTransport(router);
+     if (clientConsumerTransport == undefined) {
+       ack({});
+       return;
+     }
+     const config = {
+       id: clientConsumerTransport.id,
+       iceParameters: clientConsumerTransport.iceParameters,
+       iceCandidate: clientConsumerTransport.iceCandidates,
+       dtlcParameter: clientConsumerTransport.dtlsParameters,
+     };
+     ack(config);
+   });
+
+  socket.on("connect-transport-producer-event", async (dltsParameter, ack) => {
+    console.log("conection transport event");
     console.log(dltsParameter);
     console.log("get the dtls info from client and finish the transport");
     try {
-      console.log(JSON.parse(JSON.stringify(dltsParameter.dtlsParameters)))
-      await transport?.connect({dtlsParameters: dltsParameter.dtlsParameters})
+      console.log(JSON.parse(JSON.stringify(dltsParameter.dtlsParameters)));
+      await clientProducerTransport?.connect({
+        dtlsParameters: dltsParameter.dtlsParameters,
+      });
       ack("success");
-    } catch(err) {
+    } catch (err) {
       ack("error");
       console.log(err);
     }
   });
 
+ socket.on("connect-transport-receiver-event", async (dltsParameter, ack) => {
+    console.log("conection transport event");
+    console.log(dltsParameter);
+    console.log("get the dtls info from client and finish the transport");
+    try {
+      console.log(JSON.parse(JSON.stringify(dltsParameter.dtlsParameters)));
+      await clientConsumerTransport?.connect({
+        dtlsParameters: dltsParameter.dtlsParameters,
+      });
+      ack("success");
+    } catch (err) {
+      ack("error");
+      console.log(err);
+    }
+  });
 
   socket.on("producer-event", async (payload, ack) => {
     const { kind, rtpParameters, transportId } = payload;
     console.log("got producer event", payload);
     try {
-      producer = await  transport?.produce({
+      clientProducer = await clientProducerTransport?.produce({
         kind,
         rtpParameters,
       });
-      console.log(producer);
-      ack({ id: producer.id, type: "success" });
+      console.log(clientProducer);
+      ack({ id: clientProducer.id, type: "success" });
     } catch (err) {
       ack({ type: "error" });
       console.error(err);
     }
   });
 
-});
+  socket.on("consume-media",async (payload, ack) => {
+    if (!clientProducerTransport) return ack("noTransport");
+    if (
+      !router?.canConsume({
+        rtpCapabilities: payload.rtpCapabilities,
+        producerId: clientProducer.id,
+      })
+    ) {
+      return ack("cantConsume");
+    }
+    clientConsumer = await clientConsumerTransport?.consume({
+      producerId: clientProducer.id,
+      rtpCapabilities: payload.rtpCapabilities,
+      paused: true,
+    });
+    const consumerParams = {
+      producerId: clientProducer.id,
+      id: clientConsumer?.id,
+      rtpParameters: clientConsumer?.rtpParameters,
+      kind: clientConsumer?.kind,
+    };
+    ack(consumerParams);
+  });
 
+
+  socket.on("unpuaseConsumer", async (ack) => {
+      console.log("unpaused consumer");
+      await  clientConsumer?.resume();
+      return ack();
+  })
+});
 
 // Make mediusoup configuration ready
 const initMediaSoup = async () => {
