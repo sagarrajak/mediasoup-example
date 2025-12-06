@@ -250,6 +250,7 @@ async function consume() {
     consumer = await consumerTransport.consume(consumerParams);
     const { track } = consumer;
     remoteVideo.srcObject = new MediaStream([track]);
+    remoteVideo.enabled = true
     console.log("Track is live");
     await socket.emitWithAck("unpuaseConsumer");
     console.log("track"+track);
